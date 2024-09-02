@@ -39,3 +39,8 @@ nats-dos-sdk/
 2. **Testing the Setup:**
 
    - Use the provided APIs to push and retrieve events through the NATS servers.
+
+```
+gomobile bind -target=android -o nats_sdk.aar ./sdk
+
+```
