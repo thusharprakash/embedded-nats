@@ -50,7 +50,7 @@ func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*s
 		DontListen:      inProcess,
 		JetStream:       true,
 		JetStreamDomain: "enbedded",
-		// LeafNode:   leafNodeOptions,
+		// LeafNode:        leafNodeOptions,
 		Routes: roueUrls,
 		Cluster: server.ClusterOpts{
 			Name: "nats-cluster",
