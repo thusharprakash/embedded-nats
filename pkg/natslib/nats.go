@@ -2,7 +2,6 @@ package natslib
 
 import (
 	"fmt"
-	"log"
 	"nats-dos-sdk/pkg/config"
 	"net/url"
 	"time"
@@ -11,28 +10,37 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// Create a nats server with the given configuration
-// set defauilt value for inProcess to false
 func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*server.Server, *nats.Conn, error) {
-	// Manually configure the server options
+	// Parse the leaf node URLs for hub1 through hub3
+	leafUrls := make([]*url.URL, 0)
+	leafNodes := []string{"nats://oolio:password@nats-hub1:7422", "nats://oolio:password@nats-hub2:7422", "nats://oolio:password@nats-hub3:7422"}
+	for _, leaf := range leafNodes {
+		leafUrl, err := url.Parse(leaf)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing leaf url: %v", err)
+		}
 
-	// Create the leaf node url for the hub
-	leafUrl, err := url.Parse("nats-leaf://nats-hub:7422")
-	if err != nil {
-		return nil, nil, fmt.Errorf("error parsing leaf url: %v", err)
+		leafUrls = append(leafUrls, leafUrl)
 	}
 
-	// Leaf node options
+	// leafUrl, err := url.Parse("nats://nats-hub1:7422")
+	// if err != nil {
+	// 	return nil, nil, fmt.Errorf("error parsing leaf url: %v", err)
+	// }
+
+	// Configure leaf node options
 	leafNodeOptions := server.LeafNodeOpts{
+		Username: "oolio",
+		Password: "password",
 		Remotes: []*server.RemoteLeafOpts{
 			{
-				URLs: []*url.URL{leafUrl},
+
+				URLs: leafUrls,
 			},
 		},
 	}
-	// Create the server options
-	log.Printf("Leaf node options: %v", leafNodeOptions)
 
+	// Set up cluster routes
 	roueUrls := make([]*url.URL, 0)
 	for _, peer := range cfg.ClusterPeers {
 		peerUrl, err := url.Parse(peer)
@@ -41,6 +49,8 @@ func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*s
 		}
 		roueUrls = append(roueUrls, peerUrl)
 	}
+
+	// Create server options
 	opts := &server.Options{
 		ServerName:      cfg.ServerName,
 		Host:            "0.0.0.0",
@@ -49,21 +59,22 @@ func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*s
 		Password:        "password",
 		DontListen:      inProcess,
 		JetStream:       true,
-		JetStreamDomain: "enbedded",
-		// LeafNode:        leafNodeOptions,
-		Routes: roueUrls,
+		JetStreamDomain: "embedded",
+		LeafNode:        leafNodeOptions,
+		Routes:          roueUrls,
 		Cluster: server.ClusterOpts{
 			Name: "nats-cluster",
 			Port: cfg.ClusterPort,
 		},
 	}
-	// Start the NATS server with the generated options
+
+	// Start the NATS server
 	ns, err := server.NewServer(opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error starting server: %v", err)
 	}
 
-	//Setup loger for the server if needed
+	// Enable logging if required
 	if isLogEnabled {
 		ns.ConfigureLogger()
 	}
@@ -85,5 +96,4 @@ func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*s
 	}
 
 	return ns, nc, nil
-
 }

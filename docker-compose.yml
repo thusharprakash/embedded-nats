@@ -1,22 +1,42 @@
 services:
+  nats-hub1:
+    image: nats:2.8.4
+    container_name: nats-hub1
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf  # Mount the configuration file
+    ports:
+      - "4222:4222"  # NATS client connections (only exposing this hub externally)
+    command: >
+      -c /etc/nats/nats.conf --server_name=hub1 -p 4222
+    environment:
+      - NATS_SERVER_NAME=hub1
+    networks:
+      - nats-network
+  
+  nats-hub2:
+    image: nats:2.8.4
+    container_name: nats-hub2
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf  # Mount the configuration file
+    command: >
+      -c /etc/nats/nats.conf --server_name=hub2 -p 4222
+    environment:
+      - NATS_SERVER_NAME=hub2
+    networks:
+      - nats-network
 
+  nats-hub3:
+    image: nats:2.8.4
+    container_name: nats-hub3
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf  # Mount the configuration file
+    command: >
+      -c /etc/nats/nats.conf --server_name=hub3 -p 4222
+    environment:
+      - NATS_SERVER_NAME=hub3
+    networks:
+      - nats-network
 
-  # nats-hub:
-  #   image: nats:2.8.4
-  #   container_name: nats-hub
-  #   volumes:
-  #     - ./nats.conf:/etc/nats/nats.conf  # Mount the configuration file
-  #   ports:
-  #     - "7422:4222"  # NATS client connections
-  #     - "7423:6222"  # NATS cluster communication
-  #     - "7424:8222"  # NATS monitoring
-  #     - "7425:7422"  # NATS leaf node connections (this maps the leaf node listening port)
-  #   command: >
-  #     -c /etc/nats/nats.conf
-  #   environment:
-  #     - NATS_SERVER_NAME=hub
-
-      
   nats-node1:
     build: .
     container_name: nats-node1
@@ -27,9 +47,8 @@ services:
       - NATS_SERVER_PORT=4222
       - NATS_CLUSTER_PORT=6222
       - NATS_CLUSTER_PEERS=nats://nats-node2:6222
-    ports:
-      - "4222:4222"
-      - "8222:8222"
+    networks:
+      - nats-network
 
   nats-node2:
     build: .
@@ -41,9 +60,8 @@ services:
       - NATS_SERVER_PORT=4223
       - NATS_CLUSTER_PORT=6222
       - NATS_CLUSTER_PEERS=nats://nats-node1:6222
-    ports:
-      - "4223:4223"
-      - "8223:8223"
+    networks:
+      - nats-network
 
   nats-node3:
     build: .
@@ -55,28 +73,9 @@ services:
       - NATS_SERVER_PORT=4224
       - NATS_CLUSTER_PORT=6222
       - NATS_CLUSTER_PEERS=nats://nats-node1:6222
-    ports:
-      - "4224:4224"
-      - "8224:8224"
+    networks:
+      - nats-network
 
-
-  #   # Create one client node for nats client to connect to the cluster and test the communication
-  # nats-client:
-  #   build: .
-  #   container_name: nats-client
-  #   environment:
-  #     - NATS_SERVER_NAME=client
-  #     - NATS_SERVER_PORT=4225
-  #     - NATS_CLUSTER_PORT=6222
-  #     - NATS_CLUSTER_PEERS=nats://nats-node1:6222,nats://nats-node2:6222,nats://nats-node3:6222
-  #   ports:
-  #     - "4225:4225"
-  #     - "8225:8225"
-
-
-
-
-
-
-
- 
+networks:
+  nats-network:
+    driver: bridge

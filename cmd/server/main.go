@@ -26,6 +26,7 @@ func producer(ctx context.Context, nc *nats.Conn) {
 		_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 			Name:     "orders",
 			MaxBytes: 1024 * 1024 * 1024,
+			Storage:  jetstream.FileStorage,
 			Subjects: []string{"orders.>"},
 		})
 		if err == nil {
