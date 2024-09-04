@@ -5,14 +5,71 @@ import (
 	"fmt"
 	"log"
 	"nats-dos-sdk/pkg/config"
+	"nats-dos-sdk/pkg/mdnslib"
 	"nats-dos-sdk/pkg/natslib"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+func setupLibp2pMDNS(ctx context.Context) (*mdnslib.MDNSService, error) {
+	h, err := libp2p.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create libp2p host: %v", err)
+	}
+
+	mdnsService := mdnslib.NewMDNSService(h)
+	err = mdnsService.StartDiscovery(ctx, "nats-discovery")
+	if err != nil {
+		return nil, fmt.Errorf("failed to start mDNS discovery: %v", err)
+	}
+
+	return mdnsService, nil
+}
+
+func createNatsURLsFromAddrInfo(addrInfo multiaddr.Multiaddr) (string, error) {
+	log.Printf("Processing multiaddr: %s", addrInfo.String())
+
+	// Initialize variables for IP and port
+	var ip string
+	port := "4222" // Default NATS port, always set to 4222
+
+	// Split the multiaddress into its components
+	maSplit := multiaddr.Split(addrInfo)
+
+	// Iterate through the components and extract IP and TCP information
+	for _, addr := range maSplit {
+		log.Printf("Inspecting component: %s", addr.String())
+
+		switch addr.Protocols()[0].Code {
+		case multiaddr.P_IP4:
+			// Use String(), then strip the `/ip4/` part to get the actual IP
+			ip = strings.TrimPrefix(addr.String(), "/ip4/")
+			log.Printf("Found IPv4 address: %s", ip)
+		case multiaddr.P_TCP:
+			// Use String(), then strip the `/tcp/` part to get the actual port
+			port = strings.TrimPrefix(addr.String(), "/tcp/")
+			log.Printf("Found TCP port: %s", port)
+		}
+	}
+
+	// Check if an IP address was extracted
+	if ip == "" {
+		return "", fmt.Errorf("no valid IPv4 address found in multiaddr: %s", addrInfo.String())
+	}
+
+	// Construct the NATS URL with the default or extracted port
+	natsURL := fmt.Sprintf("nats://%s:%s", ip, "6222")
+	log.Printf("Constructed NATS URL: %s", natsURL)
+
+	return natsURL, nil
+}
 
 func producer(ctx context.Context, nc *nats.Conn) {
 	js, err := jetstream.New(nc)
@@ -21,7 +78,6 @@ func producer(ctx context.Context, nc *nats.Conn) {
 	}
 
 	// Retry loop to create a stream
-	// Remove the declaration of the unused variable
 	for i := 0; i < 5; i++ {
 		_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 			Name:     "orders",
@@ -106,9 +162,50 @@ func consumer(ctx context.Context, nc *nats.Conn, name string) {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	mdnsService, err := setupLibp2pMDNS(ctx)
+	if err != nil {
+		log.Fatalf("Failed to setup libp2p mDNS: %v", err)
+	}
+
+	time.Sleep(15 * time.Second) // Wait for peer discovery
+	peers := mdnsService.GetPeers()
+	if len(peers) == 0 {
+		log.Println("No peers discovered, exiting...")
+		return
+	}
+
+	for peerID, addrInfo := range peers {
+		log.Printf("Peer discovered: %s at %s\n", peerID, addrInfo.Addrs)
+		for _, addr := range addrInfo.Addrs {
+			natsURL, err := createNatsURLsFromAddrInfo(addr)
+			if err != nil {
+				log.Printf("Failed to create NATS URL for peer %s: %v", peerID, err)
+				continue
+			}
+			log.Println("Adding peer to cluster:", natsURL)
+			// Check if the peer is already in the list
+			found := false
+			for _, p := range cfg.ClusterPeers {
+				if p == natsURL {
+					found = true
+					break
+				}
+			}
+			if found {
+				log.Println("Peer already in cluster, skipping...")
+				continue
+			}
+
+			cfg.ClusterPeers = append(cfg.ClusterPeers, natsURL)
+		}
 	}
 
 	server, conn, err := natslib.CreateNatsServer(cfg, true, false)
@@ -117,10 +214,10 @@ func main() {
 	}
 
 	if cfg.ServerName == "node1" {
-		go producer(context.Background(), conn)
+		go producer(ctx, conn)
 	}
 
-	go consumer(context.Background(), conn, cfg.ServerName)
+	go consumer(ctx, conn, cfg.ServerName)
 
 	defer server.Shutdown()
 	defer conn.Close()

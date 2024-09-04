@@ -46,7 +46,7 @@ services:
       - NATS_SERVER_NAME=node1
       - NATS_SERVER_PORT=4222
       - NATS_CLUSTER_PORT=6222
-      - NATS_CLUSTER_PEERS=nats://nats-node2:6222
+      # - NATS_CLUSTER_PEERS=nats://nats-node2:6222
     networks:
       - nats-network
 
@@ -59,7 +59,7 @@ services:
       - NATS_SERVER_NAME=node2
       - NATS_SERVER_PORT=4223
       - NATS_CLUSTER_PORT=6222
-      - NATS_CLUSTER_PEERS=nats://nats-node1:6222
+      # - NATS_CLUSTER_PEERS=nats://nats-node1:6222
     networks:
       - nats-network
 
@@ -72,7 +72,7 @@ services:
       - NATS_SERVER_NAME=node3
       - NATS_SERVER_PORT=4224
       - NATS_CLUSTER_PORT=6222
-      - NATS_CLUSTER_PEERS=nats://nats-node1:6222
+      # - NATS_CLUSTER_PEERS=nats://nats-node1:6222
     networks:
       - nats-network
 
