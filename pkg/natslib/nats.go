@@ -10,6 +10,17 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+<<<<<<< HEAD
+=======
+var storage string = "./"
+
+func SetStoragePath(path string) {
+	storage = path
+}
+
+// Create a nats server with the given configuration
+// set defauilt value for inProcess to false
+>>>>>>> 1d5e2ff (Add working mobile support)
 func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*server.Server, *nats.Conn, error) {
 	// Parse the leaf node URLs for hub1 through hub3
 	leafUrls := make([]*url.URL, 0)
@@ -62,6 +73,8 @@ func CreateNatsServer(cfg *config.Config, isLogEnabled bool, inProcess bool) (*s
 		JetStreamDomain: "embedded",
 		LeafNode:        leafNodeOptions,
 		Routes:          roueUrls,
+		Debug: 		 true,
+		StoreDir:        storage,
 		Cluster: server.ClusterOpts{
 			Name: "nats-cluster",
 			Port: cfg.ClusterPort,
