@@ -1,12 +1,16 @@
 module nats-dos-sdk
 
-go 1.21.0
+go 1.22
+
+toolchain go1.22.7
 
 require (
-	github.com/libp2p/go-libp2p v0.36.2
+	github.com/libp2p/go-libp2p v0.36.3
+	github.com/libp2p/zeroconf/v2 v2.2.0
 	github.com/multiformats/go-multiaddr v0.13.0
-	github.com/nats-io/nats-server/v2 v2.10.19
+	github.com/nats-io/nats-server/v2 v2.10.20
 	github.com/nats-io/nats.go v1.37.0
+	go.uber.org/zap v1.27.0
 )
 
 require (
@@ -45,7 +49,6 @@ require (
 	github.com/libp2p/go-netroute v0.2.1 // indirect
 	github.com/libp2p/go-reuseport v0.4.0 // indirect
 	github.com/libp2p/go-yamux/v4 v4.0.1 // indirect
-	github.com/libp2p/zeroconf/v2 v2.2.0 // indirect
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.61 // indirect
@@ -103,9 +106,9 @@ require (
 	go.uber.org/fx v1.22.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
+	golang.org/x/mobile v0.0.0-20240905004112-7c4916698cc9 // indirect
 	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
@@ -116,4 +119,9 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect
+)
+
+replace (
+	github.com/elastic/gosigar => github.com/birros/gosigar v0.14.2-fix-ios
+	github.com/multiformats/go-multiaddr => github.com/athulantonynp/go-multiaddr v0.0.0-20240606071945-a474a56a4b42 // tmp, required for Android SDK30
 )

@@ -1,36 +1,57 @@
-package main
+package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"nats-dos-sdk/pkg/config"
+	internal "nats-dos-sdk/pkg/internals"
 	"nats-dos-sdk/pkg/mdnslib"
 	"nats-dos-sdk/pkg/natslib"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.uber.org/zap"
 )
 
-func setupLibp2pMDNS(ctx context.Context) (*mdnslib.MDNSService, error) {
-	h, err := libp2p.New()
+var globalCallback MessageCallback
+var globalServerName string
+var globalStream jetstream.Stream
+
+var (
+	existingNumbers = make(map[int]bool)
+	mu              sync.Mutex
+)
+
+func setupLibp2pMDNS() (*mdnslib.MDNSService, error) {
+	h, err := libp2p.New(libp2p.Security(noise.ID, noise.New),
+	libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"))
 	if err != nil {
+		fmt.Println("ERROR IN LIBP2P HOST",err)
 		return nil, fmt.Errorf("failed to create libp2p host: %v", err)
 	}
 
+	fmt.Println("LIBP2P HOST CREATED")
+
 	mdnsService := mdnslib.NewMDNSService(h, "nats-discovery")
-	err = mdnsService.StartDiscovery(ctx, "nats-discovery")
+	service,err := mdnsService.StartDiscovery( "nats-discovery")
 	if err != nil {
 		return nil, fmt.Errorf("failed to start mDNS discovery: %v", err)
 	}
+	fmt.Println("MDNS SERVICE RETURNED")
 
-	return mdnsService, nil
+	return service, nil
 }
 
 func createNatsURLsFromAddrInfo(addrInfo multiaddr.Multiaddr) (string, error) {
@@ -78,21 +99,26 @@ func producer(ctx context.Context, nc *nats.Conn) {
 	}
 
 	// Retry loop to create a stream
-	for i := 0; i < 5; i++ {
-		_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+	// Remove the declaration of the unused variable
+	for i := 0; i < 30; i++ {
+		stream, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 			Name:     "orders",
 			MaxBytes: 1024 * 1024 * 1024,
-			Storage:  jetstream.FileStorage,
 			Subjects: []string{"orders.>"},
 		})
+		if stream != nil {
+			globalStream = stream
+			fmt.Println("stream created",stream,stream.CachedInfo().State)
+		}
+		
 		if err == nil {
 			break
 		}
-		log.Printf("Failed to create stream, retrying... (%d/5): %v", i+1, err)
-		time.Sleep(2 * time.Second)
+		log.Printf(" Producer ==> Failed to create stream, retrying... (%d/5): %v", i+1, err)
+		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Failed to create stream after retries: %v", err)
+		log.Fatalf("Producer ==> Failed to create stream after retries: %v", err)
 	}
 
 	subject := "orders.>"
@@ -104,7 +130,7 @@ func producer(ctx context.Context, nc *nats.Conn) {
 			return
 		default:
 			i += 1
-			message := fmt.Sprintf("message %v", i)
+			message := fmt.Sprintf("message %v from %s", i,globalServerName)
 			time.Sleep(3 * time.Second)
 
 			ack, err := js.Publish(ctx, subject, []byte(message))
@@ -120,23 +146,27 @@ func producer(ctx context.Context, nc *nats.Conn) {
 	}
 }
 
-func consumer(ctx context.Context, nc *nats.Conn, name string) {
+func consumer(ctx context.Context, nc *nats.Conn, name string,isProducer bool) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		log.Fatalf("Failed to create JetStream context: %v", err)
 	}
-
 	var stream jetstream.Stream
-	for i := 0; i < 5; i++ {
+	time.Sleep(5 * time.Second)
+	for {
+		if(isProducer == true && globalStream == nil){
+			continue	
+		}
+		fmt.Println("stream found",globalStream)
 		stream, err = js.Stream(ctx, "orders")
 		if err == nil {
 			break
 		}
-		log.Printf("Failed to get stream, retrying... (%d/5): %v", i+1, err)
-		time.Sleep(2 * time.Second)
+		log.Printf("Consumer ==> Failed to get stream, retrying %v", err)
+		time.Sleep(5 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Failed to get stream after retries: %v", err)
+		log.Fatalf("Consumer ==> Failed to get stream after retries: %v", err)
 	}
 
 	consumer, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
@@ -144,11 +174,12 @@ func consumer(ctx context.Context, nc *nats.Conn, name string) {
 		Durable: "orders-consumer_" + name,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create consumer: %v", err)
+		log.Fatalf("Failed to create consumer: %v", wrapErrorWithStackTrace(err))
 	}
 
 	cctx, err := consumer.Consume(func(msg jetstream.Msg) {
 		log.Println("Received message", string(msg.Subject()), string(msg.Data()))
+		globalCallback.OnMessageReceived("Received message " + string(msg.Subject()) + " " + string(msg.Data()))
 		msg.Ack()
 	})
 	if err != nil {
@@ -161,27 +192,55 @@ func consumer(ctx context.Context, nc *nats.Conn, name string) {
 	<-quit
 }
 
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func wrapErrorWithStackTrace(err error) error {
+    buf := make([]byte, 1024)
+    runtime.Stack(buf, false)
+    return errors.New(string(buf) + "\n" + err.Error())
+}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+
+func StartNATS(serverName string,storage string, isProducer bool,mdnsLocker NativeMDNSLockerDriver,
+	netDriver NativeNetDriver,callback MessageCallback){
+	globalCallback = callback
+	globalServerName = serverName
+
+	if netDriver != nil {
+		logger, _ := zap.NewDevelopment()
+		inet := &inet{
+			net:    netDriver,
+			logger: logger,
+		}
+
+		internal.SetNetDriver(inet)
+		manet.SetNetInterface(inet)
 	}
 
-	mdnsService, err := setupLibp2pMDNS(ctx)
+	mdnsLocked := false
+
+	if mdnsLocker != nil {
+		mdnsLocker.Lock()
+		mdnsLocked = true
+	}
+	mdnsService, err := setupLibp2pMDNS()
 	if err != nil {
 		log.Fatalf("Failed to setup libp2p mDNS: %v", err)
 	}
 
-	time.Sleep(15 * time.Second) // Wait for peer discovery
+	fmt.Println("Timer starts")
+	time.Sleep(5 * time.Second) // Wait for peer discovery
 	peers := mdnsService.GetPeers()
-	if len(peers) == 0 {
-		log.Println("No peers discovered, exiting...")
-		return
-	}
 
+	fmt.Println("Peers found",peers)
+	
+	fmt.Println("Loading config")
+	cfg, err := config.LoadMobileConfig(serverName)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	fmt.Println("Config loaded")
+	natslib.SetStoragePath(storage+"/")
+
+	fmt.Println("Creating peers")
 	for peerID, addrInfo := range peers {
 		log.Printf("Peer discovered: %s at %s\n", peerID, addrInfo.Addrs)
 		for _, addr := range addrInfo.Addrs {
@@ -207,17 +266,22 @@ func main() {
 			cfg.ClusterPeers = append(cfg.ClusterPeers, natsURL)
 		}
 	}
+	fmt.Println("Peers created")
 
 	server, conn, err := natslib.CreateNatsServer(cfg, true, false)
 	if err != nil {
 		log.Fatalf("Failed to start NATS server: %v", err)
 	}
-
-	if cfg.ServerName == "node1" {
-		go producer(ctx, conn)
+	fmt.Println("NATS server started")
+	if mdnsLocked && mdnsLocker != nil {
+		mdnsLocker.Unlock()
 	}
-
-	go consumer(ctx, conn, cfg.ServerName)
+	fmt.Println("Producer starts")
+	if isProducer == true{
+		go producer(context.Background(), conn)
+	}
+	fmt.Println("Consumer starts")
+	go consumer(context.Background(), conn, cfg.ServerName,isProducer)
 
 	defer server.Shutdown()
 	defer conn.Close()

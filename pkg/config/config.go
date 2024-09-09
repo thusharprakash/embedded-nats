@@ -34,3 +34,21 @@ func LoadConfig() (*Config, error) {
 		ClusterPeers: clusterPeers,
 	}, nil
 }
+
+
+func LoadMobileConfig(serverName string) (*Config, error) {
+	serverPort, err := strconv.Atoi("4223")
+	if err != nil {
+		return nil, err
+	}
+	clusterPort, err := strconv.Atoi("6222")
+	if err != nil {
+		return nil, err
+	}
+
+	return &Config{
+		ServerName:   serverName,
+		ServerPort:   serverPort,
+		ClusterPort:  clusterPort,
+	}, nil
+}
