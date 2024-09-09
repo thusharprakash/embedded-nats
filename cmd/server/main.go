@@ -24,7 +24,7 @@ func setupLibp2pMDNS(ctx context.Context) (*mdnslib.MDNSService, error) {
 		return nil, fmt.Errorf("failed to create libp2p host: %v", err)
 	}
 
-	mdnsService := mdnslib.NewMDNSService(h)
+	mdnsService := mdnslib.NewMDNSService(h, "nats-discovery")
 	err = mdnsService.StartDiscovery(ctx, "nats-discovery")
 	if err != nil {
 		return nil, fmt.Errorf("failed to start mDNS discovery: %v", err)

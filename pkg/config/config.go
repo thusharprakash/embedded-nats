@@ -38,7 +38,6 @@ func LoadConfig() (*Config, error) {
 
 func LoadMobileConfig(serverName string) (*Config, error) {
 	serverPort, err := strconv.Atoi("4223")
-	clusterPeer :="nats://192.168.1.18:6222"
 	if err != nil {
 		return nil, err
 	}
@@ -46,12 +45,10 @@ func LoadMobileConfig(serverName string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	clusterPeers := strings.Split(clusterPeer, ",")
 
 	return &Config{
 		ServerName:   serverName,
 		ServerPort:   serverPort,
 		ClusterPort:  clusterPort,
-		ClusterPeers: clusterPeers,
 	}, nil
 }
